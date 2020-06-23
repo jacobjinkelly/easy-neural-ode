@@ -21,9 +21,9 @@ from jax.experimental import optimizers
 from jax.experimental.ode import \
     odeint, odeint_aux_one, odeint_sepaux, ravel_first_arg, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
 from jax.experimental.jet import jet
+from jax.config import config
 
 float64 = False
-from jax.config import config
 config.update("jax_enable_x64", float64)
 
 REGS = ["r2", "r3", "r4", "r5", "r6"]
@@ -117,8 +117,6 @@ def sol_recursive(f, z, t):
   """
   Recursively compute higher order derivatives of dynamics of ODE.
   """
-  # TODO: flatten z and concat t once?
-  # z_t = jnp.concatenate((z, jnp.repeat(jnp.array([[t]]), z.shape[0], axis=0)), axis=1)
   z_shape = z.shape
   z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
 
@@ -139,7 +137,6 @@ def sol_recursive(f, z, t):
   # (y0, [y1, y2, y3, y4, y5h]) = jet(g, (z_t, ), ((y0, y1, y2, y3, y4h), ))
   # (y0, [y1, y2, y3, y4, y5, y6h]) = jet(g, (z_t, ), ((y0, y1, y2, y3, y4, y5h), ))
 
-  # TODO: shape this correctly! this will fail silently
   return (jnp.reshape(y0[:-1], z_shape), [jnp.reshape(y1[:-1], z_shape)])
                                           # jnp.reshape(y2[:-1], z_shape),
                                           # jnp.reshape(y3[:-1], z_shape),
@@ -179,8 +176,6 @@ def get_epsilon(key, shape):
     """
     Sample epsilon from the desired distribution.
     """
-    # normal
-    # return jax.random.normal(key, shape)
     # rademacher
     if float64:
         return jax.random.randint(key, shape, minval=0, maxval=2).astype(jnp.float64) * 2 - 1
@@ -223,23 +218,6 @@ class PreODE(hk.Module):
 
     def __init__(self):
         super(PreODE, self).__init__()
-        # self.model = hk.Sequential([
-        #     lambda x: x.astype(jnp.float32) / 255.,
-        #     hk.Conv2D(output_channels=64,
-        #               kernel_shape=3,
-        #               stride=1,
-        #               padding="VALID"),
-        #     sigmoid,
-        #     hk.Conv2D(output_channels=64,
-        #               kernel_shape=4,
-        #               stride=2,
-        #               padding=lambda _: (1, 1)),
-        #     sigmoid,
-        #     hk.Conv2D(output_channels=64,
-        #               kernel_shape=4,
-        #               stride=2,
-        #               padding=lambda _: (1, 1))
-        # ])
         if float64:
             self.model = hk.Sequential([
                 lambda x: x.astype(jnp.float64) / 255.,
@@ -253,38 +231,6 @@ class PreODE(hk.Module):
 
     def __call__(self, x):
         return self.model(x)
-
-
-class Dynamics(hk.Module):
-    """
-    Dynamics of the ODENet.
-    """
-
-    def __init__(self, input_shape):
-        super(Dynamics, self).__init__()
-        self.input_shape = input_shape
-        output_channels = input_shape[-1]
-        self.conv1 = ConcatConv2D(output_channels=output_channels,
-                                  kernel_shape=3,
-                                  stride=1,
-                                  padding=lambda _: (1, 1))
-        self.conv2 = ConcatConv2D(output_channels=output_channels,
-                                  kernel_shape=3,
-                                  stride=1,
-                                  padding=lambda _: (1, 1),
-                                  w_init=jnp.zeros,
-                                  b_init=jnp.zeros)
-
-    def __call__(self, x, t):
-        # vmapping means x will be a single batch element, so need to expand dims at 0
-        x = jnp.reshape(x, self.input_shape)
-
-        out = sigmoid(x)
-        out = self.conv1(out, t)
-        out = sigmoid(out)
-        out = self.conv2(out, t)
-
-        return out
 
 
 class MLPDynamics(hk.Module):
@@ -326,10 +272,6 @@ class PostODE(hk.Module):
         super(PostODE, self).__init__()
         self.model = hk.Sequential([
             sigmoid,
-            # hk.AvgPool(window_shape=(1, 6, 6, 1),
-            #            strides=(1, 1, 1, 1),
-            #            padding="VALID"),
-            # Flatten(),
             hk.Linear(10)
         ])
 
@@ -399,7 +341,6 @@ def init_model(model_reg=None):
                 y = jnp.reshape(y, (-1, ode_dim))
                 return dydt, jnp.zeros(y.shape[0])
             else:
-                # do r3 regularization
                 y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
                 if model_reg is None:
                     r = y_n[-1]
@@ -421,7 +362,6 @@ def init_model(model_reg=None):
             """
             y, *_ = yr
             if reg_type == "our":
-                res = reg_dynamics(y, t, params)
                 return reg_dynamics(y, t, params)
             else:
                 dy, eps_dy = fin_dynamics(y, t, eps, params)
@@ -683,10 +623,6 @@ def init_data():
     ds_train = ds_train.cache()
     ds_train = ds_train.repeat()
     ds_train = ds_train.shuffle(1000, seed=seed)
-    # ds_train = ds_train.batch(parse_args.batch_size)
-    # ds_train = tfds.as_numpy(ds_train)
-    # ds_train_eval = ds_test.batch(test_batch_size).repeat()
-    # ds_train_eval = tfds.as_numpy(ds_train_eval)
     ds_train, ds_train_eval = ds_train.batch(parse_args.batch_size), ds_train.batch(test_batch_size)
     ds_train, ds_train_eval = tfds.as_numpy(ds_train), tfds.as_numpy(ds_train_eval)
 
