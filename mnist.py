@@ -46,9 +46,7 @@ parser.add_argument('--test_freq', type=int, default=3000)
 parser.add_argument('--save_freq', type=int, default=3000)
 parser.add_argument('--dirname', type=str, default='tmp')
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--resnet', action="store_true")
 parser.add_argument('--no_count_nfe', action="store_true")
-parser.add_argument('--num_blocks', type=int, default=6)
 parser.add_argument('--load_ckpt', type=str, default=None)
 parser.add_argument('--ckpt_path', type=str, default="./ck.pt")
 parser.add_argument('--lam_fro', type=float, default=0)
@@ -74,11 +72,8 @@ lam_w = parse_args.lam_w
 seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
-odenet = False if parse_args.resnet is True else True
-count_nfe = False if parse_args.no_count_nfe or (not odenet) is True else True
-vmap = False if parse_args.no_vmap is True else True
-vmap = False
-num_blocks = parse_args.num_blocks
+count_nfe = not parse_args.no_count_nfe
+vmap = not parse_args.no_vmap
 grid = False
 if grid:
     all_odeint = odeint_grid
@@ -301,7 +296,6 @@ def initialization_data(input_shape, ode_shape):
     data = {
         "pre_ode": jnp.zeros(input_shape),
         "ode": (jnp.zeros(ode_dim), 0.),
-        "res": jnp.zeros(ode_shape),
         "post_ode": jnp.zeros(ode_dim)
     }
     return data
@@ -319,149 +313,140 @@ def init_model(model_reg=None):
 
     initialization_data_ = initialization_data(input_shape, ode_shape)
 
-    if odenet:
-        pre_ode = hk.transform(wrap_module(PreODE))
-        pre_ode_params = pre_ode.init(rng, initialization_data_["pre_ode"])
-        pre_ode_fn = pre_ode.apply
-    else:
-        pre_ode = hk.transform(wrap_module(PreODE))
-        pre_ode_params = pre_ode.init(rng, initialization_data_["pre_ode"])
-        pre_ode_fn = pre_ode.apply
+    pre_ode = hk.transform(wrap_module(PreODE))
+    pre_ode_params = pre_ode.init(rng, initialization_data_["pre_ode"])
+    pre_ode_fn = pre_ode.apply
 
-    if odenet:
-        dynamics = hk.transform(wrap_module(MLPDynamics, ode_shape))
-        dynamics_params = dynamics.init(rng, *initialization_data_["ode"])
-        dynamics_wrap = lambda x, t, params: dynamics.apply(params, x, t)
-        def reg_dynamics(y, t, params):
-            """
-            Dynamics of regularization for ODE integration.
-            """
-            if reg == "none":
-                dydt = dynamics_wrap(y, t, params)
-                y = jnp.reshape(y, (-1, ode_dim))
-                return dydt, jnp.zeros(y.shape[0])
+    dynamics = hk.transform(wrap_module(MLPDynamics, ode_shape))
+    dynamics_params = dynamics.init(rng, *initialization_data_["ode"])
+    dynamics_wrap = lambda x, t, params: dynamics.apply(params, x, t)
+
+    def reg_dynamics(y, t, params):
+        """
+        Dynamics of regularization for ODE integration.
+        """
+        if reg == "none":
+            dydt = dynamics_wrap(y, t, params)
+            y = jnp.reshape(y, (-1, ode_dim))
+            return dydt, jnp.zeros(y.shape[0])
+        else:
+            y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
+            if model_reg is None:
+                r = y_n[-1]
             else:
-                y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
-                if model_reg is None:
-                    r = y_n[-1]
-                else:
-                    r = y_n[REGS.index(model_reg)]
-                return y0, jnp.mean(jnp.square(r), axis=[axis_ for axis_ in range(1, r.ndim)])
+                r = y_n[REGS.index(model_reg)]
+            return y0, jnp.mean(jnp.square(r), axis=[axis_ for axis_ in range(1, r.ndim)])
 
-        def fin_dynamics(y, t, eps, params):
-            """
-            Dynamics of finlay reg.
-            """
-            f = lambda y: dynamics_wrap(y, t, params)
-            dy, eps_dy = jax.jvp(f, (y,), (eps,))
-            return dy, eps_dy
+    def fin_dynamics(y, t, eps, params):
+        """
+        Dynamics of finlay reg.
+        """
+        f = lambda y: dynamics_wrap(y, t, params)
+        dy, eps_dy = jax.jvp(f, (y,), (eps,))
+        return dy, eps_dy
 
-        def aug_dynamics(yr, t, eps, params):
-            """
-            Dynamics augmented with regularization.
-            """
-            y, *_ = yr
-            if reg_type == "our":
-                return reg_dynamics(y, t, params)
-            else:
-                dy, eps_dy = fin_dynamics(y, t, eps, params)
-                dfro = jnp.mean(jnp.square(eps_dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
-                dkin = jnp.mean(jnp.square(dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
-                return dy, dfro, dkin
-
-        def all_aug_dynamics(yr, t, eps, params):
-            """
-            Dynamics augmented with all regularizations for tracking.
-            """
-            y, *_ = yr
+    def aug_dynamics(yr, t, eps, params):
+        """
+        Dynamics augmented with regularization.
+        """
+        y, *_ = yr
+        if reg_type == "our":
+            return reg_dynamics(y, t, params)
+        else:
             dy, eps_dy = fin_dynamics(y, t, eps, params)
-            _, drdt = reg_dynamics(y, t, params)
             dfro = jnp.mean(jnp.square(eps_dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
             dkin = jnp.mean(jnp.square(dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
-            return dy, drdt, dfro, dkin
+            return dy, dfro, dkin
 
-        if reg_type == "our":
-            _odeint = odeint_aux1
+    def all_aug_dynamics(yr, t, eps, params):
+        """
+        Dynamics augmented with all regularizations for tracking.
+        """
+        y, *_ = yr
+        dy, eps_dy = fin_dynamics(y, t, eps, params)
+        _, drdt = reg_dynamics(y, t, params)
+        dfro = jnp.mean(jnp.square(eps_dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
+        dkin = jnp.mean(jnp.square(dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
+        return dy, drdt, dfro, dkin
+
+    if reg_type == "our":
+        _odeint = odeint_aux1
+    else:
+        _odeint = odeint_aux2
+    nodeint_aux = lambda y0, ts, eps, params: \
+        _odeint(lambda y, t, eps, params: dynamics_wrap(y, t, params),
+                aug_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
+    all_nodeint = lambda y0, ts, eps, params: all_odeint(all_aug_dynamics,
+                                                          y0, ts, eps, params, **ode_kwargs)[0]
+
+    def ode(params, out_pre_ode, eps):
+        """
+        Apply the ODE block.
+        """
+        out_ode, *out_ode_rs = nodeint_aux(aug_init(out_pre_ode), ts, eps, params)
+        return (out_ode[-1], *(out_ode_r[-1] for out_ode_r in out_ode_rs))
+
+    def all_ode(params, out_pre_ode, eps):
+        """
+        Apply ODE block for all regularizations.
+        """
+        out_ode, *out_ode_rs = all_nodeint(all_aug_init(out_pre_ode), ts, eps, params)
+        return (out_ode[-1], *(out_ode_r[-1] for out_ode_r in out_ode_rs))
+
+    if count_nfe:
+        if vmap:
+            unreg_nodeint = jax.vmap(lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1],
+                                     (0, None, None))
         else:
-            _odeint = odeint_aux2
-        nodeint_aux = lambda y0, ts, eps, params: \
-            _odeint(lambda y, t, eps, params: dynamics_wrap(y, t, params),
-                    aug_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
-        all_nodeint = lambda y0, ts, eps, params: all_odeint(all_aug_dynamics,
-                                                              y0, ts, eps, params, **ode_kwargs)[0]
+            unreg_nodeint = lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1]
 
-        def ode(params, out_pre_ode, eps):
+        @jax.jit
+        def nfe_fn(params, _images, _labels):
             """
-            Apply the ODE block.
+            Function to return NFE.
             """
-            out_ode, *out_ode_rs = nodeint_aux(aug_init(out_pre_ode), ts, eps, params)
-            return (out_ode[-1], *(out_ode_r[-1] for out_ode_r in out_ode_rs))
+            in_ode = pre_ode_fn(params["pre_ode"], _images)
+            f_nfe = unreg_nodeint(in_ode, ts, params["ode"])
+            return jnp.mean(f_nfe)
 
-        def all_ode(params, out_pre_ode, eps):
+        def plot_nfe_fn(_method, params, _images, _labels):
             """
-            Apply ODE block for all regularizations.
+            Function to return NFE.
             """
-            out_ode, *out_ode_rs = all_nodeint(all_aug_init(out_pre_ode), ts, eps, params)
-            return (out_ode[-1], *(out_ode_r[-1] for out_ode_r in out_ode_rs))
+            rtol = ode_kwargs["rtol"]
+            atol = ode_kwargs["atol"]
+            mxstep = jnp.inf
+            in_ode = pre_ode_fn(params["pre_ode"], _images)
 
-        if count_nfe:
-            if vmap:
-                unreg_nodeint = jax.vmap(lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1],
-                                         (0, None, None))
-            else:
-                unreg_nodeint = lambda y0, t, params: all_odeint(dynamics_wrap, y0, t, params, **ode_kwargs)[1]
+            def unreg_nodeint(y0, t, params):
+                y0, unravel = ravel_pytree(y0)
+                func = ravel_first_arg(dynamics_wrap, unravel)
+                return _method(func, rtol, atol, mxstep, y0, t, params)[1]
+            f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
+            return jnp.mean(f_nfe)
 
-            @jax.jit
-            def nfe_fn(params, _images, _labels):
-                """
-                Function to return NFE.
-                """
-                in_ode = pre_ode_fn(params["pre_ode"], _images)
-                f_nfe = unreg_nodeint(in_ode, ts, params["ode"])
-                return jnp.mean(f_nfe)
+        def plot_nfe_per_ex_fn(_method, params, _images, _labels):
+            """
+            Function to return NFE.
+            """
+            rtol = ode_kwargs["rtol"]
+            atol = ode_kwargs["atol"]
+            mxstep = jnp.inf
+            in_ode = pre_ode_fn(params["pre_ode"], _images)
 
-            def plot_nfe_fn(_method, params, _images, _labels):
-                """
-                Function to return NFE.
-                """
-                rtol = ode_kwargs["rtol"]
-                atol = ode_kwargs["atol"]
-                mxstep = jnp.inf
-                in_ode = pre_ode_fn(params["pre_ode"], _images)
-                def unreg_nodeint(y0, t, params):
-                    y0, unravel = ravel_pytree(y0)
-                    func = ravel_first_arg(dynamics_wrap, unravel)
-                    return _method(func, rtol, atol, mxstep, y0, t, params)[1]
-                f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
-                return jnp.mean(f_nfe)
-
-            def plot_nfe_per_ex_fn(_method, params, _images, _labels):
-                """
-                Function to return NFE.
-                """
-                rtol = ode_kwargs["rtol"]
-                atol = ode_kwargs["atol"]
-                mxstep = jnp.inf
-                in_ode = pre_ode_fn(params["pre_ode"], _images)
-                def unreg_nodeint(y0, t, params):
-                    y0, unravel = ravel_pytree(y0)
-                    func = ravel_first_arg(dynamics_wrap, unravel)
-                    return _method(func, rtol, atol, mxstep, y0, t, params)
-                out_ode, f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
-                out_ode = out_ode[:, -1]
-                logits = post_ode_fn(params["post_ode"], out_ode)
-                loss_ = jax.vmap(_loss_fn, in_axes=(0, 0))(logits, _labels)
-                acc_ = jax.vmap(_acc_fn, in_axes=(0, 0))(jnp.expand_dims(logits, axis=1), _labels)
-                return loss_, acc_, f_nfe
-
-        else:
-            nfe_fn = None
+            def unreg_nodeint(y0, t, params):
+                y0, unravel = ravel_pytree(y0)
+                func = ravel_first_arg(dynamics_wrap, unravel)
+                return _method(func, rtol, atol, mxstep, y0, t, params)
+            out_ode, f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
+            out_ode = out_ode[:, -1]
+            logits = post_ode_fn(params["post_ode"], out_ode)
+            loss_ = jax.vmap(_loss_fn, in_axes=(0, 0))(logits, _labels)
+            acc_ = jax.vmap(_acc_fn, in_axes=(0, 0))(jnp.expand_dims(logits, axis=1), _labels)
+            return loss_, acc_, f_nfe
 
     else:
-        resnet = hk.transform(wrap_module(
-            lambda: hk.Sequential([MLPBlock(ode_shape) for _ in range(num_blocks)])))
-        resnet_params = resnet.init(rng, initialization_data_["res"])
-        resnet_fn = resnet.apply
+        nfe_fn = None
 
     post_ode = hk.transform(wrap_module(PostODE))
     post_ode_params = post_ode.init(rng, initialization_data_["post_ode"])
@@ -479,16 +464,12 @@ def init_model(model_reg=None):
         }
     }
 
-    if odenet:
-        model["model"]["ode"] = ode
-        model["model"]["all_ode"] = all_ode
-        model["params"]["ode"] = dynamics_params
-        model["nfe"] = nfe_fn
-        model["plot_nfe"] = plot_nfe_fn  # TODO: plot or nah?
-        model["plot_nfe_per_ex"] = plot_nfe_per_ex_fn
-    else:
-        model["model"]["res"] = resnet_fn
-        model["params"]["res"] = resnet_params
+    model["model"]["ode"] = ode
+    model["model"]["all_ode"] = all_ode
+    model["params"]["ode"] = dynamics_params
+    model["nfe"] = nfe_fn
+    model["plot_nfe"] = plot_nfe_fn  # TODO: plot or nah?
+    model["plot_nfe_per_ex"] = plot_nfe_per_ex_fn
 
     def forward(key, params, _images):
         """
@@ -496,15 +477,9 @@ def init_model(model_reg=None):
         """
         model_ = model["model"]
 
-        if odenet:
-            out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
-            out_ode, *regs = model_["ode"](params["ode"], out_pre_ode, get_epsilon(key, out_pre_ode.shape))
-            logits = model_["post_ode"](params["post_ode"], out_ode)
-        else:
-            out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
-            out_ode = model_["res"](params["res"], out_pre_ode)
-            regs = jnp.zeros(_images.shape[0])
-            logits = model_["post_ode"](params["post_ode"], out_ode)
+        out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
+        out_ode, *regs = model_["ode"](params["ode"], out_pre_ode, get_epsilon(key, out_pre_ode.shape))
+        logits = model_["post_ode"](params["post_ode"], out_ode)
 
         return (logits, *regs)
 
