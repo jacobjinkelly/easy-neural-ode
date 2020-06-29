@@ -1,17 +1,16 @@
 """
-Generate synthetic dataset. Modified from https://github.com/YuliaRubanova/latent_ode/blob/master/generate_timeseries.py
+Process physionet. Modified from https://github.com/YuliaRubanova/latent_ode/blob/master/generate_timeseries.py
 """
+
+import errno
+import os
+import pickle
+import random
+import tarfile
 
 import jax
 import jax.numpy as jnp
-
 import numpy as onp
-
-import os
-import errno
-import tarfile
-import pickle
-import random
 
 
 def makedir_exist_ok(dirpath):
@@ -243,39 +242,39 @@ def init_physionet_data(rng, parse_args):
     """
     Initialize physionet data for training and testing.
     """
-    # n_samples = None
-    # dataset_obj = PhysioNet(root=parse_args.data_root,
-    #                         download=True,
-    #                         quantization=1.,   # TODO: make this 0 (it's only there for speed)
-    #                         n_samples=n_samples)
-    # # remove time-invariant features and Patient ID
-    # remove_params = ['Age', 'Gender', 'Height', 'ICUType']
-    # params_inds = [dataset_obj.params_dict[param_name]
-    #                for ind, param_name in enumerate(dataset_obj.params) if param_name not in remove_params]
-    # for ind, ex in enumerate(dataset_obj.data):
-    #     record_id, tt, vals, mask = ex
-    #     dataset_obj.data[ind] = (tt, vals[:, params_inds], mask[:, params_inds])
-    # n_samples = len(dataset_obj)
-    #
-    # def _split_train_test(data, train_frac=0.8):
-    #     data_train = data[:int(n_samples * train_frac)]
-    #     data_test = data[int(n_samples * train_frac):]
-    #     return data_train, data_test
-    #
-    # dataset = onp.array(dataset_obj[:n_samples])
-    #
-    # random.Random(parse_args.seed).shuffle(dataset)
-    # train_dataset, test_dataset = _split_train_test(dataset)
-    #
-    # # TODO: this might have infs in it for no observed values?
-    # data_min, data_max = get_data_min_max(dataset_obj)
-    #
-    # processed_dataset = process_batch(train_dataset, data_min=data_min, data_max=data_max)
-    #
-    # with open(os.path.join(parse_args.data_root, "PhysioNet/processed/final2.pt"), 'wb') as processed_file:
-    #     pickle.dump(processed_dataset, processed_file, protocol=4)
+    if not os.path.exists("PhysioNet/processed/final.pt"):
+        n_samples = None
+        dataset_obj = PhysioNet(root=parse_args.data_root,
+                                download=True,
+                                quantization=1.,
+                                n_samples=n_samples)
+        # remove time-invariant features and Patient ID
+        remove_params = ['Age', 'Gender', 'Height', 'ICUType']
+        params_inds = [dataset_obj.params_dict[param_name]
+                       for ind, param_name in enumerate(dataset_obj.params) if param_name not in remove_params]
+        for ind, ex in enumerate(dataset_obj.data):
+            record_id, tt, vals, mask = ex
+            dataset_obj.data[ind] = (tt, vals[:, params_inds], mask[:, params_inds])
+        n_samples = len(dataset_obj)
 
-    with open(os.path.join(parse_args.data_root, "PhysioNet/processed/final2.pt"), 'rb') as processed_file:
+        def _split_train_test(data, train_frac=0.8):
+            data_train = data[:int(n_samples * train_frac)]
+            data_test = data[int(n_samples * train_frac):]
+            return data_train, data_test
+
+        dataset = onp.array(dataset_obj[:n_samples])
+
+        random.Random(parse_args.seed).shuffle(dataset)
+        train_dataset, test_dataset = _split_train_test(dataset)
+
+        data_min, data_max = get_data_min_max(dataset_obj)
+
+        processed_dataset = process_batch(train_dataset, data_min=data_min, data_max=data_max)
+
+        with open(os.path.join(parse_args.data_root, "PhysioNet/processed/final.pt"), 'wb') as processed_file:
+            pickle.dump(processed_dataset, processed_file, protocol=4)
+
+    with open(os.path.join(parse_args.data_root, "PhysioNet/processed/final.pt"), 'rb') as processed_file:
         processed_dataset = pickle.load(processed_file)
 
     for key in ["observed_tp", "tp_to_predict"]:
@@ -324,7 +323,6 @@ def init_physionet_data(rng, parse_args):
                 # batch_dataset = train_dataset[batch_inds]
                 # yield process_batch(batch_dataset, data_min=data_min, data_max=data_max)
 
-    # TODO: use the actual test set to see that
     ds_train = gen_data(parse_args.batch_size)
     ds_test = gen_data(parse_args.test_batch_size, shuffle=False)
 
@@ -465,8 +463,3 @@ def process_batch(batch,
 
     data_dict = split_data_interp(data_dict)
     return data_dict
-
-
-if __name__ == "__main__":
-    # TODO: set this
-    init_physionet_data(root="./")
