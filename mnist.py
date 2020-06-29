@@ -6,7 +6,6 @@ import collections
 import os
 import pickle
 import time
-from functools import partial
 
 import haiku as hk
 import jax
@@ -494,7 +493,7 @@ def init_data():
     assert num_train % parse_args.batch_size == 0
     num_batches = num_train // parse_args.batch_size
 
-    test_batch_size = parse_args.test_batch_size if odenet else 10000
+    test_batch_size = parse_args.test_batch_size
     assert num_train % test_batch_size == 0
     num_test_batches = num_train // test_batch_size
 
