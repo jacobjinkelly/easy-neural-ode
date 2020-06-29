@@ -5,9 +5,7 @@ import argparse
 import collections
 import os
 import pickle
-import sys
 import time
-from glob import glob
 
 import haiku as hk
 import tensorflow_datasets as tfds
@@ -19,7 +17,7 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 from jax.experimental import optimizers
 from jax.experimental.ode import \
-    odeint, odeint_aux_one, odeint_sepaux, ravel_first_arg, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
+    odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
 from jax.experimental.jet import jet
 from jax.config import config
 
@@ -37,11 +35,8 @@ parser.add_argument('--lam', type=float, default=0)
 parser.add_argument('--lam_w', type=float, default=0)
 parser.add_argument('--atol', type=float, default=1.4e-8)
 parser.add_argument('--rtol', type=float, default=1.4e-8)
-parser.add_argument('--method', type=str, default="dopri5")
 parser.add_argument('--no_vmap', action="store_true")
-parser.add_argument('--init_step', type=float, default=1.)
 parser.add_argument('--reg', type=str, choices=['none'] + REGS, default='none')
-parser.add_argument('--reg_result', type=str, choices=['none'] + REGS, default=None)  # TODO: for plotting
 parser.add_argument('--test_freq', type=int, default=3000)
 parser.add_argument('--save_freq', type=int, default=3000)
 parser.add_argument('--dirname', type=str, default='tmp')
@@ -174,34 +169,6 @@ def get_epsilon(key, shape):
         return jax.random.randint(key, shape, minval=0, maxval=2).astype(jnp.float64) * 2 - 1
     else:
         return jax.random.randint(key, shape, minval=0, maxval=2).astype(jnp.float32) * 2 - 1
-
-
-class MLPBlock(hk.Module):
-    """
-    Standard ResBlock.
-    """
-
-    def __init__(self, input_shape):
-        super(MLPBlock, self).__init__()
-        self.input_shape = input_shape
-        self.dim = jnp.prod(input_shape[1:])
-        self.hidden_dim = 100
-        self.lin1 = hk.Linear(self.hidden_dim)
-        self.lin2 = hk.Linear(self.hidden_dim)
-        self.lin3 = hk.Linear(self.dim)
-
-    def __call__(self, x):
-        # vmapping means x will be a single batch element, so need to expand dims at 0
-        x = jnp.reshape(x, (-1, self.dim))
-
-        out = sigmoid(x)
-        out = self.lin1(out)
-        out = sigmoid(out)
-        out = self.lin2(out)
-        out = sigmoid(out)
-        out = self.lin3(out)
-
-        return out
 
 
 class PreODE(hk.Module):
@@ -407,42 +374,6 @@ def init_model(model_reg=None):
             f_nfe = unreg_nodeint(in_ode, ts, params["ode"])
             return jnp.mean(f_nfe)
 
-        def plot_nfe_fn(_method, params, _images, _labels):
-            """
-            Function to return NFE.
-            """
-            rtol = ode_kwargs["rtol"]
-            atol = ode_kwargs["atol"]
-            mxstep = jnp.inf
-            in_ode = pre_ode_fn(params["pre_ode"], _images)
-
-            def unreg_nodeint(y0, t, params):
-                y0, unravel = ravel_pytree(y0)
-                func = ravel_first_arg(dynamics_wrap, unravel)
-                return _method(func, rtol, atol, mxstep, y0, t, params)[1]
-            f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
-            return jnp.mean(f_nfe)
-
-        def plot_nfe_per_ex_fn(_method, params, _images, _labels):
-            """
-            Function to return NFE.
-            """
-            rtol = ode_kwargs["rtol"]
-            atol = ode_kwargs["atol"]
-            mxstep = jnp.inf
-            in_ode = pre_ode_fn(params["pre_ode"], _images)
-
-            def unreg_nodeint(y0, t, params):
-                y0, unravel = ravel_pytree(y0)
-                func = ravel_first_arg(dynamics_wrap, unravel)
-                return _method(func, rtol, atol, mxstep, y0, t, params)
-            out_ode, f_nfe = jax.vmap(unreg_nodeint, (0, None, None))(in_ode, ts, params["ode"])
-            out_ode = out_ode[:, -1]
-            logits = post_ode_fn(params["post_ode"], out_ode)
-            loss_ = jax.vmap(_loss_fn, in_axes=(0, 0))(logits, _labels)
-            acc_ = jax.vmap(_acc_fn, in_axes=(0, 0))(jnp.expand_dims(logits, axis=1), _labels)
-            return loss_, acc_, f_nfe
-
     else:
         nfe_fn = None
 
@@ -451,23 +382,17 @@ def init_model(model_reg=None):
     post_ode_fn = post_ode.apply
 
     # return a dictionary of the three components of the model
-    model = {
-        "model": {
-            "pre_ode": pre_ode_fn,
-            "post_ode": post_ode_fn
-        },
-        "params": {
-            "pre_ode": pre_ode_params,
-            "post_ode": post_ode_params
-        }
+    model = {"model": {
+        "pre_ode": pre_ode_fn,
+        "ode": ode,
+        "post_ode": post_ode_fn,
+        "all_ode": all_ode
+    }, "params": {
+        "pre_ode": pre_ode_params,
+        "ode": dynamics_params,
+        "post_ode": post_ode_params
+    }, "nfe": nfe_fn
     }
-
-    model["model"]["ode"] = ode
-    model["model"]["all_ode"] = all_ode
-    model["params"]["ode"] = dynamics_params
-    model["nfe"] = nfe_fn
-    model["plot_nfe"] = plot_nfe_fn  # TODO: plot or nah?
-    model["plot_nfe_per_ex"] = plot_nfe_per_ex_fn
 
     def forward(key, params, _images):
         """
@@ -487,15 +412,9 @@ def init_model(model_reg=None):
         """
         model_ = model["model"]
 
-        if odenet:
-            out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
-            out_ode, *regs = model_["all_ode"](params["ode"], out_pre_ode, get_epsilon(key, out_pre_ode.shape))
-            logits = model_["post_ode"](params["post_ode"], out_ode)
-        else:
-            out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
-            out_ode = model_["res"](params["res"], out_pre_ode)
-            regs = jnp.zeros(_images.shape[0])
-            logits = model_["post_ode"](params["post_ode"], out_ode)
+        out_pre_ode = model_["pre_ode"](params["pre_ode"], _images)
+        out_ode, *regs = model_["all_ode"](params["ode"], out_pre_ode, get_epsilon(key, out_pre_ode.shape))
+        logits = model_["post_ode"](params["post_ode"], out_ode)
 
         return (logits, *regs)
 
@@ -620,6 +539,9 @@ def run():
     grad_fn = jax.grad(lambda *args: loss_fn(forward, *args))
 
     def lr_schedule(train_itr):
+        """
+        The learning rate schedule.
+        """
         _epoch = train_itr // num_batches
         id = lambda x: x
         return lax.cond(_epoch < 60, 1e-1, id, 0,
