@@ -25,7 +25,7 @@ config.update("jax_enable_x64", float64)
 
 REGS = ["r2", "r3", "r4", "r5", "r6"]
 
-parser = argparse.ArgumentParser('Neural ODE')
+parser = argparse.ArgumentParser('Neural ODE MNIST')
 parser.add_argument('--batch_size', type=int, default=100)
 parser.add_argument('--test_batch_size', type=int, default=1000)
 parser.add_argument('--nepochs', type=int, default=160)

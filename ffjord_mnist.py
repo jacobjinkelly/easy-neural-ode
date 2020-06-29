@@ -21,7 +21,7 @@ from jax.experimental.ode import odeint, odeint_sepaux, odeint_fin_sepaux, odein
 from jax.experimental.jet import jet
 from jax.scipy.special import expit as sigmoid
 
-parser = argparse.ArgumentParser('Neural ODE')
+parser = argparse.ArgumentParser('FFJORd MNIST')
 parser.add_argument('--batch_size', type=int, default=200)
 parser.add_argument('--test_batch_size', type=int, default=200)
 parser.add_argument('--nepochs', type=int, default=100)

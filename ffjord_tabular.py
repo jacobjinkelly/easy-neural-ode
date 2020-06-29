@@ -25,7 +25,7 @@ float_64 = False
 config.update("jax_enable_x64", float_64)
 
 
-parser = argparse.ArgumentParser('Neural ODE')
+parser = argparse.ArgumentParser('FFJORD Tabular')
 parser.add_argument('--batch_size', type=int, default=1000)
 parser.add_argument('--test_batch_size', type=int, default=1000)
 parser.add_argument('--nepochs', type=int, default=500)
