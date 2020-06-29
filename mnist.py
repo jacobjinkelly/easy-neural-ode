@@ -6,20 +6,20 @@ import collections
 import os
 import pickle
 import time
+from functools import partial
 
 import haiku as hk
-import tensorflow_datasets as tfds
-from jax.tree_util import tree_flatten
-
 import jax
-from jax import lax
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
+import tensorflow_datasets as tfds
+from jax import lax
+from jax.config import config
 from jax.experimental import optimizers
+from jax.experimental.jet import jet
 from jax.experimental.ode import \
     odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
-from jax.experimental.jet import jet
-from jax.config import config
+from jax.flatten_util import ravel_pytree
+from jax.tree_util import tree_flatten
 
 float64 = False
 config.update("jax_enable_x64", float64)
@@ -105,6 +105,9 @@ def sol_recursive(f, z, t):
   """
   Recursively compute higher order derivatives of dynamics of ODE.
   """
+  if reg == "none":
+      return f(z, t), jnp.zeros_like(z)
+
   z_shape = z.shape
   z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
 
@@ -118,18 +121,13 @@ def sol_recursive(f, z, t):
     dz_t = jnp.concatenate((dz, dt))
     return dz_t
 
-  (y0, [y1h]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
-  (y0, [y1, y2h]) = jet(g, (z_t, ), ((y0, y1h,), ))
-  # (y0, [y1, y2, y3h]) = jet(g, (z_t, ), ((y0, y1, y2h), ))
-  # (y0, [y1, y2, y3, y4h]) = jet(g, (z_t, ), ((y0, y1, y2, y3h), ))
-  # (y0, [y1, y2, y3, y4, y5h]) = jet(g, (z_t, ), ((y0, y1, y2, y3, y4h), ))
-  # (y0, [y1, y2, y3, y4, y5, y6h]) = jet(g, (z_t, ), ((y0, y1, y2, y3, y4, y5h), ))
+  reg_ind = REGS.index(reg)
 
-  return (jnp.reshape(y0[:-1], z_shape), [jnp.reshape(y1[:-1], z_shape)])
-                                          # jnp.reshape(y2[:-1], z_shape),
-                                          # jnp.reshape(y3[:-1], z_shape),
-                                          # jnp.reshape(y4[:-1], z_shape),
-                                          # jnp.reshape(y5[:-1], z_shape)])
+  (y0, [*yns]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
+  for _ in range(reg_ind + 1):
+      (y0, [*yns]) = jet(g, (z_t, ), ((y0, *yns), ))
+
+  return (jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape))
 
 
 # set up modules
@@ -266,7 +264,7 @@ def initialization_data(input_shape, ode_shape):
     return data
 
 
-def init_model(model_reg=None):
+def init_model():
     """
     Instantiates transformed submodules of model and their parameters.
     """
@@ -290,17 +288,8 @@ def init_model(model_reg=None):
         """
         Dynamics of regularization for ODE integration.
         """
-        if reg == "none":
-            dydt = dynamics_wrap(y, t, params)
-            y = jnp.reshape(y, (-1, ode_dim))
-            return dydt, jnp.zeros(y.shape[0])
-        else:
-            y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
-            if model_reg is None:
-                r = y_n[-1]
-            else:
-                r = y_n[REGS.index(model_reg)]
-            return y0, jnp.mean(jnp.square(r), axis=[axis_ for axis_ in range(1, r.ndim)])
+        y0, r = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
+        return y0, jnp.mean(jnp.square(r), axis=[axis_ for axis_ in range(1, r.ndim)])
 
     def fin_dynamics(y, t, eps, params):
         """
