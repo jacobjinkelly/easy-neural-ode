@@ -681,10 +681,6 @@ def run():
                 pickle.dump(fargs, outfile)
                 outfile.close()
 
-            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_iter.txt"
-                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-            outfile.write("Iter: {:04d}\n".format(itr))
-            outfile.close()
     meta = {
         "info": info,
         "args": parse_args
