@@ -5,49 +5,41 @@ import argparse
 import collections
 import os
 import pickle
-import sys
 from functools import partial
 
 import haiku as hk
-
-from timeseries import init_physionet_data
-
 import jax
-from jax import lax
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
-from jax.experimental import optimizers
-from jax.experimental.ode import odeint, ravel_first_arg
-from jax.experimental.jet import jet
-
-
+from jax import lax
 from jax.config import config
+from jax.experimental import optimizers
+from jax.experimental.jet import jet
+from jax.experimental.ode import odeint
+from jax.flatten_util import ravel_pytree
+
+from physionet_data import init_physionet_data
+
 config.update("jax_enable_x64", True)
 
 REGS = ["r2", "r3", "r4", "r5"]
 
-parser = argparse.ArgumentParser('Neural ODE')
+parser = argparse.ArgumentParser('Latent ODE')
 parser.add_argument('--batch_size', type=int, default=50)
 parser.add_argument('--test_batch_size', type=int, default=100)
 parser.add_argument('--nepochs', type=int, default=100)
-parser.add_argument('--data_root', type=str, default="./")  # TODO: set when on cluster
+parser.add_argument('--data_root', type=str, default="./")
 parser.add_argument('--lr', type=float, default=1e-2)
 parser.add_argument('--lam', type=float, default=0)
 parser.add_argument('--lam_w', type=float, default=0)
 parser.add_argument('--atol', type=float, default=1.4e-8)
 parser.add_argument('--rtol', type=float, default=1.4e-8)
-parser.add_argument('--method', type=str, default="dopri5")
-parser.add_argument('--no_vmap', action="store_true")
 parser.add_argument('--init_step', type=float, default=1.)
 parser.add_argument('--reg', type=str, choices=['none'] + REGS, default='none')
-parser.add_argument('--reg_result', type=str, choices=['none'] + REGS, default='none')  # TODO: for importing into plotting
 parser.add_argument('--test_freq', type=int, default=640)
 parser.add_argument('--save_freq', type=int, default=640)
 parser.add_argument('--dirname', type=str, default='tmp')
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--resnet', action="store_true")
 parser.add_argument('--no_count_nfe', action="store_true")
-parser.add_argument('--num_blocks', type=int, default=6)
 parse_args = parser.parse_args()
 
 
@@ -62,15 +54,11 @@ lam_w = parse_args.lam_w
 seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
-odenet = False if parse_args.resnet is True else True
-count_nfe = False if parse_args.no_count_nfe or (not odenet) is True else True
-vmap = False if parse_args.no_vmap is True else True  # note: this does nothing, we always vmap!!
+count_nfe = not parse_args.no_count_nfe
 num_blocks = parse_args.num_blocks
 ode_kwargs = {
     "atol": parse_args.atol,
-    "rtol": parse_args.rtol,
-    # "method": parse_args.method,
-    # "init_step": parse_args.init_step
+    "rtol": parse_args.rtol
 }
 
 
@@ -94,6 +82,9 @@ def sol_recursive(f, z, t):
   """
   Recursively compute higher order derivatives of dynamics of ODE.
   """
+  if reg == "none":
+      return f(z, t), jnp.zeros_like(z)
+
   z_shape = z.shape
   z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
 
@@ -107,16 +98,13 @@ def sol_recursive(f, z, t):
     dz_t = jnp.concatenate((dz, dt))
     return dz_t
 
-  (y0, [y1h]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
-  (y0, [y1, y2h]) = jet(g, (z_t, ), ((y0, y1h,), ))
-  (y0, [y1, y2, y3h]) = jet(g, (z_t, ), ((y0, y1, y2h), ))
-  (y0, [y1, y2, y3, y4h]) = jet(g, (z_t, ), ((y0, y1, y2, y3h), ))
-  (y0, [y1, y2, y3, y4, y5h]) = jet(g, (z_t, ), ((y0, y1, y2, y3, y4h), ))
+  reg_ind = REGS.index(reg)
 
-  return (jnp.reshape(y0[:-1], z_shape), [jnp.reshape(y1[:-1], z_shape),
-                                          jnp.reshape(y2[:-1], z_shape),
-                                          jnp.reshape(y3[:-1], z_shape),
-                                          jnp.reshape(y4[:-1], z_shape)])
+  (y0, [*yns]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
+  for _ in range(reg_ind + 1):
+      (y0, [*yns]) = jet(g, (z_t, ), ((y0, *yns), ))
+
+  return (jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape))
 
 
 class LatentGRU(hk.Module):
@@ -216,10 +204,6 @@ class GenDynamics(hk.Module):
                                    )
 
     def __call__(self, y, t):
-        # use time-dependent dynamics
-        # y = jnp.reshape(y, (-1, self.latent_dim))
-        # y_t = jnp.concatenate((y, jnp.ones((y.shape[0], 1)) * t), axis=1)
-        # return self.model(y_t)
         return self.model(y)
 
 
@@ -241,7 +225,6 @@ def initialization_data(rec_dim, gen_dim, data_dim):
     Creates data for initializing each of the modules based on the shapes of init_data.
     """
     data = {
-        "gru": (jnp.zeros(rec_dim), jnp.zeros(rec_dim), jnp.zeros((2 * data_dim, ))),  # double data dim for mask
         "gru_rnn": (jnp.zeros(rec_dim), jnp.zeros(rec_dim), jnp.zeros((2 * data_dim + 1, ))),  # 2x+1 for mask and delta
         "rec_dynamics": (jnp.zeros(rec_dim), 0.),
         "rec_to_gen": (jnp.zeros(rec_dim), jnp.zeros(rec_dim)),
@@ -251,7 +234,7 @@ def initialization_data(rec_dim, gen_dim, data_dim):
     return data
 
 
-def augment_dynamics(dynamics, reg, sign=1):
+def augment_dynamics(dynamics):
     """
     Closure to augment dynamics.
     """
@@ -259,31 +242,23 @@ def augment_dynamics(dynamics, reg, sign=1):
         """
         Dynamics of regularization.
         """
-        if reg == "none":
-            return 0.
-        else:
-            y0, y_n = sol_recursive(lambda _y, _t: dynamics(_y, _t, params), y, t)
-            r = y_n[REGS.index(reg)]
-            # return jnp.mean(r ** 2, axis=[axis_ for axis_ in range(1, r.ndim)])
-            return jnp.mean(r ** 2)  # TODO: this only works for vmapping!!
+        y0, r = sol_recursive(lambda _y, _t: dynamics(_y, _t, params), y, t)
+        return y0, jnp.mean(r ** 2)
 
     def aug_dynamics(yr, t, params):
         """
         Dynamics augmented with regularization.
         """
         y, r = yr
-        dydt = dynamics(y, t, params)
-        drdt = reg_dynamics(y, t, params)
-        return sign * dydt, sign * drdt
+        dydt, drdt = reg_dynamics(y, t, params)
+        return dydt, drdt
     return aug_dynamics
 
 
-def init_model(rec_ode_kwargs,
-               gen_ode_kwargs,
+def init_model(gen_ode_kwargs,
                rec_dim=40,
                gen_dim=20,
                data_dim=37,
-               rec_layers=3,
                gen_layers=3,
                dynamics_units=50,
                gru_units=50):
@@ -299,25 +274,11 @@ def init_model(rec_ode_kwargs,
         "b_init": jnp.zeros
     }
 
-    # gru = hk.transform(wrap_module(LatentGRU,
-    #                                latent_dim=rec_dim,
-    #                                n_units=gru_units,
-    #                                **init_kwargs))
-    # gru_params = gru.init(rng, *initialization_data_["gru"])
-
     gru_rnn = hk.transform(wrap_module(LatentGRU,
                                        latent_dim=rec_dim,
                                        n_units=gru_units,
                                        **init_kwargs))
     gru_rnn_params = gru_rnn.init(rng, *initialization_data_["gru_rnn"])
-
-    rec_dynamics = hk.transform(wrap_module(RecDynamics,
-                                            latent_dim=rec_dim,
-                                            units=dynamics_units,
-                                            layers=rec_layers)
-                                )
-    rec_dynamics_params = rec_dynamics.init(rng, *initialization_data_["rec_dynamics"])
-    rec_dynamics_wrap = lambda x, t, params: rec_dynamics.apply(params, x, t)
 
     # note: the ODE-RNN version uses double
     rec_to_gen = hk.transform(wrap_module(lambda: hk.Sequential([
@@ -341,9 +302,7 @@ def init_model(rec_ode_kwargs,
     gen_to_data_params = gen_to_data.init(rng, initialization_data_["gen_to_data"])
 
     init_params = {
-        # "gru": gru_params,
         "gru_rnn": gru_rnn_params,
-        "rec_dynamics": rec_dynamics_params,
         "rec_to_gen": rec_to_gen_params,
         "gen_dynamics": gen_dynamics_params,
         "gen_to_data": gen_to_data_params
@@ -359,9 +318,6 @@ def init_model(rec_ode_kwargs,
         data_mask = jnp.concatenate((data, mask), axis=-1)
 
         # ode-rnn encoder
-        # final_y, final_y_std, rec_r, rec_nfes = \
-        #     jax.vmap(partial(ode_rnn, count_nfe_), in_axes=(None, 0, None))(params, data_mask, data_timesteps)
-        # ode encoder
         final_y, final_y_std, rec_r, rec_nfes = \
             jax.vmap(rnn, in_axes=(None, 0, None))(params, data_mask, data_timesteps)
 
@@ -387,15 +343,6 @@ def init_model(rec_ode_kwargs,
             else:
                 dynamics = augment_dynamics(gen_dynamics_wrap, reg)
                 init_fn = aug_init
-            rtol = gen_ode_kwargs["rtol"]
-            atol = gen_ode_kwargs["atol"]
-            mxstep = jnp.inf
-            # def _ode(z_, t_):
-            #     z_ = init_fn(z_)
-            #     z_, unravel = ravel_pytree(z_)
-            #     func = ravel_first_arg(dynamics, unravel)
-            #     return _method(func, rtol, atol, mxstep, z_, t_, params["gen_dynamics"])
-            # return jax.vmap(_ode, in_axes=(0, None))(z0_, timesteps)
             return jax.vmap(lambda z_, t_: odeint(dynamics, init_fn(z_), t_,
                                                   params["gen_dynamics"], **gen_ode_kwargs),
                             in_axes=(0, None))(z0_, timesteps)
@@ -421,44 +368,6 @@ def init_model(rec_ode_kwargs,
 
         return z, pred, rec_r, gen_r, z0_params, nfe
 
-    def ode_rnn(count_nfe_, params, data_mask, timesteps):
-        """
-        ODE-RNN model.
-        """
-
-        init_t = timesteps[-1]
-        init_y, init_std = gru.apply(params["gru"], jnp.zeros(rec_dim), jnp.zeros(rec_dim), data_mask[-1])
-
-        def scan_fun(carry, target):
-            """
-            Function to scan over observations of input sequence.
-            """
-            prev_y, prev_std, prev_t = carry
-            xi, ti = target
-
-            dynamics = lambda *args: -rec_dynamics_wrap(*args)
-            init = prev_y
-            ys_ode, nfe = odeint(lambda x, t, params_: dynamics(x, -t, params_),
-                                 init,
-                                 -jnp.array([prev_t, ti]),
-                                 params["rec_dynamics"],
-                                 **rec_ode_kwargs)
-            yi_ode = ys_ode[-1]
-            r_ode = 0.
-
-            yi, yi_std = gru.apply(params["gru"],
-                                   yi_ode, prev_std, xi)
-
-            return (yi, yi_std, ti), (r_ode, nfe)
-
-        (final_y, final_y_std, _), rs_nfes = lax.scan(scan_fun,
-                                                      (init_y, init_std, init_t),
-                                                      (data_mask[-2::-1], timesteps[-2::-1]))
-
-        rs, nfes = rs_nfes
-
-        return final_y, final_y_std, jnp.mean(rs), nfes
-
     def rnn(params, data, timesteps):
         """
         ODE-RNN model.
@@ -481,8 +390,6 @@ def init_model(rec_ode_kwargs,
         "forward": partial(forward, False),
         "params": init_params,
         "nfe": lambda *args: partial(forward, count_nfe, reg)(*args)[-1]
-        # "nfe": lambda params, data, data_timesteps, timesteps, mask:
-        # partial(forward, count_nfe)(params, data, data_timesteps, timesteps, mask)[-1]
     }
 
     return model
@@ -556,14 +463,12 @@ def run():
     """
     Run the experiment.
     """
-    print("Reg: %s\tLambda %.4e" % (reg, lam))
-    print("Reg: %s\tLambda %.4e" % (reg, lam), file=sys.stderr)
 
     ds_train, ds_test, meta = init_physionet_data(rng, parse_args)
     num_batches = meta["num_batches"]
     num_test_batches = meta["num_test_batches"]
 
-    model = init_model(ode_kwargs, ode_kwargs)
+    model = init_model(ode_kwargs)
     forward = lambda *args: model["forward"](*args)[1:]
     grad_fn = jax.grad(lambda *args: loss_fn(forward, *args))
 
@@ -681,10 +586,7 @@ def run():
                 info[itr]["gen_nfe"] = gen_nfe_
 
             if itr % parse_args.save_freq == 0:
-                if odenet:
-                    param_filename = "%s/reg_%s_lam_%.12e_%d_fargs.pickle" % (dirname, reg, lam, itr)
-                else:
-                    param_filename = "%s/reg_%s_lam_%.12e_num_blocks_%d_%d_fargs.pickle" % (dirname, reg, lam, num_blocks, itr)
+                param_filename = "%s/reg_%s_lam_%.12e_%d_fargs.pickle" % (dirname, reg, lam, itr)
                 fargs = get_params(opt_state)
                 outfile = open(param_filename, "wb")
                 pickle.dump(fargs, outfile)
