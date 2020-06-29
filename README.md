@@ -32,5 +32,6 @@ The file `physionet_data.py`, adapted from [Latent ODEs for Irregularly-Sampled 
 
 ### Tabular (FFJORD)
 Data must be downloaded following instructions from [gpapamak/maf](https://github.com/gpapamak/maf) and placed in `data/`. Only `MINIBOONE` is needed for experiments in the paper.
+
 Code in `datasets/`, adapted from [Free-form Jacobian of Reversible Dynamics (FFJORD)](https://github.com/rtqichen/ffjord), will create an interface for the `MINIBOONE` dataset once it's downloaded. 
 It is called from the training script.
