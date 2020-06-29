@@ -21,6 +21,15 @@ pip install tensorflow-datasets
 ```
 
 ## Usage
+Different scripts are provided for different datasets.
+
+### MNIST Classification
+
+### Latent ODEs
+
+### FFJORD (Tabular)
+
+### FFJORD (MNIST)
 
 ## Datasets
 
