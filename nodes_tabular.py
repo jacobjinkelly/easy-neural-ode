@@ -7,39 +7,35 @@ import os
 import pickle
 import sys
 import time
-from glob import glob
 
+import datasets
 import haiku as hk
-
 import jax
-from jax import lax
-from jax.tree_util import tree_flatten
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
+from jax import lax
+from jax.config import config
 from jax.experimental import optimizers
-from jax.experimental.ode import odeint, odeint_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
 from jax.experimental.jet import jet
+from jax.experimental.ode import odeint, odeint_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
+from jax.flatten_util import ravel_pytree
+from jax.tree_util import tree_flatten
 
 float_64 = False
 
-from jax.config import config
 config.update("jax_enable_x64", float_64)
 
-import datasets
 
 parser = argparse.ArgumentParser('Neural ODE')
 parser.add_argument('--batch_size', type=int, default=1000)
 parser.add_argument('--test_batch_size', type=int, default=1000)
 parser.add_argument('--nepochs', type=int, default=500)
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--early_stopping', type=int, default=30)
 parser.add_argument('--lam', type=float, default=0)
 parser.add_argument('--lam_w', type=float, default=1e-6)
 parser.add_argument('--atol', type=float, default=1.4e-8)  # 1e-8 (original values)
 parser.add_argument('--rtol', type=float, default=1.4e-8)  # 1e-6
 parser.add_argument('--method', type=str, default="dopri5")
 parser.add_argument('--no_vmap', action="store_true")
-parser.add_argument('--init_step', type=float, default=1.)
 parser.add_argument('--reg', type=str, choices=['none', 'r2', 'r3', 'r4'], default='none')
 parser.add_argument('--test_freq', type=int, default=300)
 parser.add_argument('--save_freq', type=int, default=300)
@@ -52,8 +48,6 @@ parser.add_argument('--lam_fro', type=float, default=0)
 parser.add_argument('--lam_kin', type=float, default=0)
 parser.add_argument('--reg_type', type=str, choices=['our', 'fin'], default='our')
 parser.add_argument('--num_steps', type=int, default=2)
-parser.add_argument('--eval', action="store_true")
-parser.add_argument('--eval_dir', type=str)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--hdim_factor', type=int, default=20)
 parser.add_argument('--nonlinearity', type=str, default="softplus")
@@ -74,8 +68,7 @@ seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
-vmap = False if parse_args.no_vmap is True else True
-vmap = False
+vmap = not parse_args.no_vmap
 grid = False
 if grid:
     _odeint = odeint_grid
@@ -122,7 +115,6 @@ def sol_recursive(f, z, t):
   """
   Recursively compute higher order derivatives of dynamics of ODE.
   """
-  # TODO: numerically zero? wtf?? (perhaps this only with buggy finlay trick)
   z_shape = z.shape
   z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
 
@@ -164,8 +156,6 @@ def get_epsilon(key, shape):
     """
     # normal
     return jax.random.normal(key, shape)
-    # rademacher
-    # return jax.random.randint(key, shape, minval=0, maxval=2).astype(jnp.float64) * 2 - 1  # TODO: (set dtype)
 
 
 class NN_Dynamics(hk.Module):
@@ -183,7 +173,7 @@ class NN_Dynamics(hk.Module):
         base_layer = ConcatSquashLinear
 
         for dim_out in hidden_dims + (input_shape[-1], ):
-            layer = base_layer(dim_out)  # TODO: last layer 0?
+            layer = base_layer(dim_out)
             layers.append(layer)
             activation_fns.append(nonlinearity)
 
@@ -218,7 +208,6 @@ def initialization_data(input_shape):
     """
     Data for initializing the modules.
     """
-    # use the batch size to allocate memory
     input_shape = (parse_args.test_batch_size, ) + input_shape[1:]
     data = {
         "ode": aug_init(jnp.zeros(input_shape))[:1] + (0., )  # (z, t)
@@ -250,7 +239,6 @@ def init_model(n_dims):
             y = jnp.reshape(y, input_shape)
             return jnp.zeros((y.shape[0], 1))
         else:
-            # TODO: keep second axis at 1?
             # do r3 regularization
             y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
             r = y_n[-1]
@@ -275,18 +263,6 @@ def init_model(n_dims):
         dy, eps_dy = jax.jvp(f, (y,), (eps,))
         div = jnp.sum(jnp.reshape(eps_dy * eps, (y.shape[0], -1)), axis=1, keepdims=True)
         return dy, -div, eps_dy
-
-    def ffjord_exact_dynamics(yp, t, eps, params):
-        """
-        Dynamics of augmented ffjord state.
-        """
-        y, p = yp
-        f = lambda y: dynamics_wrap(y, t, params)
-        div = 0.
-        for i in range(y.shape[1]):
-            div += jax.jvp(f, (y,), (jnp.ones_like(y),))[1][:, i]
-        dy = f(y)
-        return dy, -div
 
     def aug_dynamics(ypr, t, eps, params):
         """
@@ -317,15 +293,6 @@ def init_model(n_dims):
         dkin = jnp.mean(jnp.square(dy), axis=[axis_ for axis_ in range(1, dy.ndim)])
         return dy, dp, dr, dfro, dkin
 
-    def aug_exact_dynamics(ypr, t, eps, params):
-        """
-        NN_Dynamics augmented with logp and regularization.
-        """
-        y, p, r = ypr
-
-        dy, dp = ffjord_exact_dynamics((y, p), t, eps, params)
-        dr = reg_dynamics(y, t, params)
-        return dy, dp, dr
     if reg_type == 'our':
         _odeint_aux = _odeint_aux2
     else:
@@ -333,7 +300,6 @@ def init_model(n_dims):
     nodeint_aux = lambda y0, ts, eps, params: _odeint_aux(lambda y, t, eps, params: dynamics_wrap(y, t, params),
                                                           aug_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
     all_nodeint = lambda y0, ts, eps, params: _odeint(all_aug_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
-    nodeint_exact = lambda y0, ts, eps, params: _odeint(aug_exact_dynamics, y0, ts, eps, params, **ode_kwargs)[0]
 
     def ode_aux(params, y, delta_logp, eps):
         """
@@ -349,15 +315,7 @@ def init_model(n_dims):
         ys, delta_logps, *rs = all_nodeint(all_reg_init(y, delta_logp), ts, eps, params)
         return (ys[-1], delta_logps[-1], *(rs_[-1] for rs_ in rs))
 
-    def ode_exact(params, y, delta_logp, eps):
-        """
-        Apply the ODE block.
-        """
-        ys, delta_logps, rs = nodeint_exact(reg_init(y, delta_logp), ts, eps, params)
-        return ys[-1], delta_logps[-1], rs[-1]
-
     if count_nfe:
-        # TODO: w/ finlay trick this is not true NFE
         if vmap:
             unreg_nodeint = jax.vmap(lambda z, delta_logp, t, eps, params:
                                      _odeint(ffjord_dynamics, (z, delta_logp), t, eps, params, **ode_kwargs)[1],
@@ -376,23 +334,8 @@ def init_model(n_dims):
             f_nfe = unreg_nodeint(*aug_init(_x)[:2], ts, eps, params["ode"])
             return jnp.mean(f_nfe)
 
-        @jax.jit
-        def plot_nfe_fn(key, params, _x):
-            """
-            Function to return NFE.
-            """
-            eps = get_epsilon(key, _x.shape)
-
-            unreg_nodeint = jax.vmap(lambda x, t, eps, params:
-                                     odeint(ffjord_dynamics, aug_init(x)[:2], t, eps, params, **ode_kwargs)[1],
-                                     (0, None, 0, None))
-
-            f_nfe = unreg_nodeint(_x, ts, eps, params["ode"])
-            return jnp.mean(f_nfe)
-
     else:
         nfe_fn = None
-        plot_nfe_fn = None
 
     def forward_aux(key, params, _x):
         """
@@ -410,14 +353,6 @@ def init_model(n_dims):
 
         return all_ode(params["ode"], *aug_init(_x)[:2], eps)
 
-    def forward_exact(key, params, _x):
-        """
-        Forward pass of the model.
-        """
-        eps = get_epsilon(key, _x.shape)
-
-        return ode_exact(params["ode"], *aug_init(_x)[:2], eps)
-
     model = {
         "model": {
             "ode": all_ode
@@ -425,9 +360,7 @@ def init_model(n_dims):
         "params": {
             "ode": dynamics_params
         }, "nfe": nfe_fn,
-        "plot_nfe": plot_nfe_fn,
-        "forward_all": forward_all,
-        "forward_exact": forward_exact
+        "forward_all": forward_all
     }
 
     return forward_aux, model
@@ -517,13 +450,13 @@ def init_data():
     num_test = data.val.N
 
     if float_64:
-        data.trn.x = jnp.float64(data.trn.x)
-        data.val.x = jnp.float64(data.val.x)
-        data.tst.x = jnp.float64(data.tst.x)
+        convert = jnp.float64
     else:
-        data.trn.x = jnp.float32(data.trn.x)
-        data.val.x = jnp.float32(data.val.x)
-        data.tst.x = jnp.float32(data.tst.x)
+        convert = jnp.float32
+
+    data.trn.x = convert(data.trn.x)
+    data.val.x = convert(data.val.x)
+    data.tst.x = convert(data.tst.x)
 
     num_batches = num_train // parse_args.batch_size + 1 * (num_train % parse_args.batch_size != 0)
     num_test_batches = num_test // parse_args.test_batch_size + 1 * (num_train % parse_args.test_batch_size != 0)
@@ -581,8 +514,6 @@ def run():
     """
     Run the experiment.
     """
-    print("Reg: %s\tLambda %.4e" % (reg, lam))
-    print("Reg: %s\tLambda %.4e" % (reg, lam), file=sys.stderr)
 
     # init the model first so that jax gets enough GPU memory before TFDS
     forward, model = init_model(43)  # how do you sleep at night
@@ -688,34 +619,17 @@ def run():
             if itr <= load_itr:
                 continue
 
-            if not parse_args.eval:
-                update_start = time.time()
-                opt_state = update(itr, opt_state, key, batch)
-                tree_flatten(opt_state)[0][0].block_until_ready()
-                update_end = time.time()
-                time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
-                outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
-                               % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-                outfile.write(time_str)
-                outfile.close()
-            else:
-                # go straight to testing
-                itr = 0
+            update_start = time.time()
+            opt_state = update(itr, opt_state, key, batch)
+            tree_flatten(opt_state)[0][0].block_until_ready()
+            update_end = time.time()
+            time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
+            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
+                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
+            outfile.write(time_str)
+            outfile.close()
 
             if itr % parse_args.test_freq == 0:
-                if parse_args.eval:
-                    # find params in eval_dir
-                    files = glob("%s/*15000_fargs.pickle" % parse_args.eval_dir)
-                    if len(files) != 1:
-                        print("Couldn't find param file!!")
-                        print("Couldn't find param file!!", file=sys.stderr)
-                        return
-                    eval_pth = files[0]
-                    eval_param_file = open(eval_pth, "rb")
-                    eval_params = pickle.load(eval_param_file)
-                    eval_param_file.close()
-                    # shove them in opt_state
-                    opt_state = opt_init(eval_params)
 
                 loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = \
                     evaluate_loss(opt_state, key, ds_test_eval)
@@ -751,11 +665,6 @@ def run():
                 outfile = open(param_filename, "wb")
                 pickle.dump(fargs, outfile)
                 outfile.close()
-
-            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_iter.txt"
-                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-            outfile.write("Iter: {:04d}\n".format(itr))
-            outfile.close()
 
             if itr % parse_args.ckpt_freq == 0:
                 state_dict = {
