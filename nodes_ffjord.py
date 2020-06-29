@@ -7,7 +7,6 @@ import os
 import pickle
 import sys
 import time
-from glob import glob
 
 import haiku as hk
 import tensorflow_datasets as tfds
@@ -46,10 +45,6 @@ parser.add_argument('--lam_fro', type=float, default=0)
 parser.add_argument('--lam_kin', type=float, default=0)
 parser.add_argument('--reg_type', type=str, choices=['our', 'fin'], default='our')
 parser.add_argument('--num_steps', type=int, default=2)
-parser.add_argument('--eval', action="store_true")
-parser.add_argument('--eval_dir', type=str)
-parser.add_argument('--fine', action="store_true")
-parser.add_argument('--fine_dir', type=str)
 parse_args = parser.parse_args()
 
 assert os.path.exists(parse_args.dirname)
@@ -66,8 +61,7 @@ seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
-vmap = False if parse_args.no_vmap is True else True
-vmap = False
+vmap = not parse_args.no_vmap
 grid = False
 if grid:
     _odeint = odeint_grid
@@ -152,8 +146,6 @@ def get_epsilon(key, shape):
     """
     Sample epsilon from the desired distribution.
     """
-    # normal
-    # return jax.random.normal(key, shape)
     # rademacher
     return jax.random.randint(key, shape, minval=0, maxval=2).astype(jnp.float32) * 2 - 1
 
@@ -255,7 +247,6 @@ def initialization_data(input_shape):
     """
     Data for initializing the modules.
     """
-    # use the batch size to allocate memory
     input_shape = (parse_args.test_batch_size, ) + input_shape[1:]
     data = {
         "pre_ode": aug_init(jnp.zeros(input_shape))[:2],        # (z, delta_logp)
@@ -290,7 +281,6 @@ def init_model():
             y = jnp.reshape(y, input_shape)
             return jnp.zeros((y.shape[0], 1))
         else:
-            # TODO: keep second axis at 1?
             # do r3 regularization
             y0, y_n = sol_recursive(lambda _y, _t: dynamics_wrap(_y, _t, params), y, t)
             r = y_n[-1]
@@ -547,9 +537,6 @@ def run():
     """
     Run the experiment.
     """
-    print("Reg: %s\tLambda %.4e" % (reg, lam))
-    print("Reg: %s\tLambda %.4e" % (reg, lam), file=sys.stderr)
-
     # init the model first so that jax gets enough GPU memory before TFDS
     forward, model = init_model()
     grad_fn = jax.grad(lambda *args: loss_fn(forward, *args))
@@ -566,7 +553,7 @@ def run():
         iter_frac = lax.min((itr.astype(jnp.float32) + 1.) / lax.max(parse_args.warmup_itrs, 1.), 1.)
         _epoch = itr // num_batches
         id = lambda x: x
-        return lax.cond(_epoch < 80, parse_args.lr * iter_frac, id, parse_args.lr / 10, id)  # TODO: just a guess for schedule
+        return lax.cond(_epoch < 80, parse_args.lr * iter_frac, id, parse_args.lr / 10, id)
 
     opt_init, opt_update, get_params = optimizers.adam(step_size=lr_schedule)
     unravel_opt = ravel_pytree(opt_init(model["params"]))[1]
@@ -584,21 +571,6 @@ def run():
 
         load_itr = 0
 
-    if parse_args.fine:
-        # fine tune on a model trained w/ fixed step solver
-        # find params in eval_dir
-        files = glob("%s/*30000_fargs_ckpt.pickle" % parse_args.fine_dir)
-        if len(files) != 1:
-            print("=============Couldn't find param file!!=============")
-            print("=============Couldn't find param file!!=============", file=sys.stderr)
-            return
-        fine_pth = files[0]
-        outfile = open(fine_pth, 'rb')
-        state_dict = pickle.load(outfile)
-        outfile.close()
-        opt_state = unravel_opt(state_dict["opt_state"])
-        load_itr = state_dict["itr"]
-
     @jax.jit
     def update(_itr, _opt_state, _key, _batch):
         """
@@ -607,12 +579,6 @@ def run():
         grad_ = jax.experimental.optimizers.clip_grads(grad_fn(get_params(_opt_state), _batch, _key),
                                                        parse_args.max_grad_norm)
         return opt_update(_itr, grad_, _opt_state)
-        # is_finite = jax.experimental.optimizers.check_finite(grad_)
-        # # restart optimization from current point if we have NaNs
-        # flat_new_opt_state = jnp.where(is_finite,
-        #                                ravel_pytree(opt_update(_itr, grad_, _opt_state))[0],
-        #                                ravel_pytree(opt_init(get_params(_opt_state)))[0])
-        # return unravel_opt(flat_new_opt_state)
 
     @jax.jit
     def sep_losses(_opt_state, _batch, _key):
@@ -634,7 +600,6 @@ def run():
         sep_loss_aug_, sep_loss_, sep_loss_r2_reg_, sep_loss_fro_reg_, sep_loss_kin_reg_, nfe = [], [], [], [], [], []
 
         for test_batch_num in range(num_test_batches):
-            # print(test_batch_num, num_test_batches)
             _key, _key2 = jax.random.split(_key, num=2)
             test_batch = next(ds_eval)[0]
             test_batch = (test_batch.astype(jnp.float32) + jax.random.uniform(_key2,
@@ -686,34 +651,17 @@ def run():
             if itr <= load_itr:
                 continue
 
-            if not parse_args.eval:
-                update_start = time.time()
-                opt_state = update(itr, opt_state, key, batch)
-                tree_flatten(opt_state)[0][0].block_until_ready()
-                update_end = time.time()
-                time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
-                outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
-                               % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-                outfile.write(time_str)
-                outfile.close()
-            else:
-                # immediately go to testing
-                itr = parse_args.test_freq
+            update_start = time.time()
+            opt_state = update(itr, opt_state, key, batch)
+            tree_flatten(opt_state)[0][0].block_until_ready()
+            update_end = time.time()
+            time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
+            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
+                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
+            outfile.write(time_str)
+            outfile.close()
 
             if itr % parse_args.test_freq == 0:
-                if parse_args.eval:
-                    # find params in eval_dir
-                    files = glob("%s/*30000_fargs.pickle" % parse_args.eval_dir)
-                    if len(files) != 1:
-                        print("Couldn't find param file!!")
-                        print("Couldn't find param file!!", file=sys.stderr)
-                        return
-                    eval_pth = files[0]
-                    eval_param_file = open(eval_pth, "rb")
-                    eval_params = pickle.load(eval_param_file)
-                    eval_param_file.close()
-                    # shove them in opt_state
-                    opt_state = opt_init(eval_params)
 
                 loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = \
                     evaluate_loss(opt_state, key, ds_test_eval)
@@ -723,12 +671,6 @@ def run():
                             'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
 
                 print(print_str)
-
-                if parse_args.eval:
-                    outfile = open("%s/eval_info.txt" % parse_args.eval_dir, "w")
-                    outfile.write(print_str + "\n")
-                    outfile.close()
-                    return
 
                 outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt"
                                % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
@@ -759,11 +701,6 @@ def run():
                 outfile = open(param_filename, "wb")
                 pickle.dump(state_dict, outfile)
                 outfile.close()
-
-            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_iter.txt"
-                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-            outfile.write("Iter: {:04d}\n".format(itr))
-            outfile.close()
 
             if itr % parse_args.ckpt_freq == 0:
                 state_dict = {
