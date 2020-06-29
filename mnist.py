@@ -53,8 +53,6 @@ parser.add_argument('--lam_fro', type=float, default=0)
 parser.add_argument('--lam_kin', type=float, default=0)
 parser.add_argument('--reg_type', type=str, choices=['our', 'fin'], default='our')
 parser.add_argument('--num_steps', type=int, default=2)
-parser.add_argument('--eval', action="store_true")
-parser.add_argument('--eval_dir', type=str)
 
 parse_args = parser.parse_args()
 
@@ -613,9 +611,6 @@ def run():
     """
     Run the experiment.
     """
-    print("Reg: %s\tLambda %.4e" % (reg, lam))
-    print("Reg: %s\tLambda %.4e" % (reg, lam), file=sys.stderr)
-
     ds_train, ds_train_eval, meta = init_data()
     num_batches = meta["num_batches"]
     num_test_batches = meta["num_test_batches"]
@@ -723,35 +718,17 @@ def run():
                 if itr <= load_itr:
                     continue
 
-            if not parse_args.eval:
-                update_start = time.time()
-                opt_state = update(itr, opt_state, key, batch)
-                tree_flatten(opt_state)[0][0].block_until_ready()
-                update_end = time.time()
-                time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
-                outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
-                               % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
-                outfile.write(time_str)
-                outfile.close()
-            else:
-                # go immediately to testing
-                itr = 0
+            update_start = time.time()
+            opt_state = update(itr, opt_state, key, batch)
+            tree_flatten(opt_state)[0][0].block_until_ready()
+            update_end = time.time()
+            time_str = "%d %.18f %d\n" % (itr, update_end - update_start, load_itr)
+            outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt"
+                           % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
+            outfile.write(time_str)
+            outfile.close()
 
             if itr % parse_args.test_freq == 0:
-                if parse_args.eval:
-                    # find params in eval_dir
-                    files = glob("%s/*96000_fargs.pickle" % parse_args.eval_dir)
-                    if len(files) != 1:
-                        print("Couldn't find param file!!")
-                        print("Couldn't find param file!!", file=sys.stderr)
-                        return
-                    eval_pth = files[0]
-                    eval_param_file = open(eval_pth, "rb")
-                    eval_params = pickle.load(eval_param_file)
-                    eval_param_file.close()
-                    # shove them in opt_state
-                    opt_state = opt_init(eval_params)
-
                 acc_, loss_aug_, loss_, \
                 loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = evaluate_loss(opt_state, key, ds_train_eval)
 
@@ -760,12 +737,6 @@ def run():
                             'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
 
                 print(print_str)
-
-                if parse_args.eval:
-                    outfile = open("%s/eval_info.txt" % parse_args.eval_dir, "w")
-                    outfile.write(print_str + "\n")
-                    outfile.close()
-                    return
 
                 outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt"
                                % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
