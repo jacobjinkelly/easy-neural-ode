@@ -9,17 +9,17 @@ import sys
 import time
 
 import haiku as hk
-import tensorflow_datasets as tfds
-
 import jax
-from jax import lax
-from jax.tree_util import tree_flatten
 import jax.numpy as jnp
-from jax.flatten_util import ravel_pytree
+import tensorflow_datasets as tfds
+from jax import lax
 from jax.experimental import optimizers
-from jax.experimental.ode import odeint, odeint_sepaux, odeint_fin_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
 from jax.experimental.jet import jet
+from jax.flatten_util import ravel_pytree
 from jax.scipy.special import expit as sigmoid
+from jax.tree_util import tree_flatten
+
+from lib.ode import odeint, odeint_sepaux, odeint_fin_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
 
 parser = argparse.ArgumentParser('FFJORd MNIST')
 parser.add_argument('--batch_size', type=int, default=200)

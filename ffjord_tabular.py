@@ -8,7 +8,6 @@ import pickle
 import sys
 import time
 
-import datasets
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -16,9 +15,11 @@ from jax import lax
 from jax.config import config
 from jax.experimental import optimizers
 from jax.experimental.jet import jet
-from jax.experimental.ode import odeint, odeint_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten
+
+import datasets
+from lib.ode import odeint, odeint_sepaux, odeint_grid, odeint_grid_sepaux, odeint_grid_sepaux_one
 
 float_64 = False
 

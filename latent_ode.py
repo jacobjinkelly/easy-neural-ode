@@ -14,10 +14,10 @@ from jax import lax
 from jax.config import config
 from jax.experimental import optimizers
 from jax.experimental.jet import jet
-from jax.experimental.ode import odeint
 from jax.flatten_util import ravel_pytree
 
 import lib
+from lib.ode import odeint
 from physionet_data import init_physionet_data
 
 config.update("jax_enable_x64", True)

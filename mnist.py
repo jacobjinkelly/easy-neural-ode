@@ -15,10 +15,10 @@ from jax import lax
 from jax.config import config
 from jax.experimental import optimizers
 from jax.experimental.jet import jet
-from jax.experimental.ode import \
-    odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten
+
+from lib.ode import odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
 
 float64 = False
 config.update("jax_enable_x64", float64)
