@@ -17,6 +17,7 @@ from jax.experimental.jet import jet
 from jax.experimental.ode import odeint
 from jax.flatten_util import ravel_pytree
 
+import lib
 from physionet_data import init_physionet_data
 
 config.update("jax_enable_x64", True)
@@ -472,10 +473,10 @@ def run():
     forward = lambda *args: model["forward"](*args)[1:]
     grad_fn = jax.grad(lambda *args: loss_fn(forward, *args))
 
-    lr_schedule = optimizers.exponential_decay(step_size=parse_args.lr,
-                                               decay_steps=1,
-                                               decay_rate=0.999,
-                                               lowest=parse_args.lr / 10)
+    lr_schedule = lib.optimizers.exponential_decay(step_size=parse_args.lr,
+                                                   decay_steps=1,
+                                                   decay_rate=0.999,
+                                                   lowest=parse_args.lr / 10)
     opt_init, opt_update, get_params = optimizers.adamax(step_size=lr_schedule)
     opt_state = opt_init(model["params"])
 
