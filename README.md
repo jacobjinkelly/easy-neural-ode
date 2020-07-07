@@ -21,11 +21,27 @@ Different scripts are provided for each task and dataset.
 
 ### MNIST Classification
 
+```
+python mnist.py --reg r3 --lam 6e-5
+```
+
 ### Latent ODEs
+
+```
+python latent_ode.py --reg r3 --lam 1e-2
+```
 
 ### FFJORD (Tabular)
 
+```
+python ffjord_tabular.py --reg r2 --lam 1e-2
+```
+
 ### FFJORD (MNIST)
+
+```
+python ffjord_mnist.py --reg r2 --lam 3e-4
+```
 
 ## Datasets
 
