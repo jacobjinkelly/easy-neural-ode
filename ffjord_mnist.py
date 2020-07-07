@@ -47,7 +47,9 @@ parser.add_argument('--reg_type', type=str, choices=['our', 'fin'], default='our
 parser.add_argument('--num_steps', type=int, default=2)
 parse_args = parser.parse_args()
 
-assert os.path.exists(parse_args.dirname)
+
+if not os.path.exists(parse_args.dirname):
+    os.makedirs(parse_args.dirname)
 
 # set up config
 

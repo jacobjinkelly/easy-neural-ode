@@ -44,7 +44,8 @@ parser.add_argument('--no_count_nfe', action="store_true")
 parse_args = parser.parse_args()
 
 
-assert os.path.exists(parse_args.dirname)
+if not os.path.exists(parse_args.dirname):
+    os.makedirs(parse_args.dirname)
 
 # set up config
 
