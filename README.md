@@ -40,3 +40,7 @@ Data must be downloaded following instructions from [gpapamak/maf](https://githu
 
 Code in `datasets/`, adapted from [Free-form Jacobian of Reversible Dynamics (FFJORD)](https://github.com/rtqichen/ffjord), will create an interface for the `MINIBOONE` dataset once it's downloaded. 
 It is called from the training script.
+
+## Acknowledgements
+
+Code in `lib` is modified from [google/jax](https://github.com/google/jax) under the [license](https://github.com/google/jax/blob/master/LICENSE).
