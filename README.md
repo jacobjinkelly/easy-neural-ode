@@ -3,7 +3,7 @@ Code for the paper "Learning Differential Equations that are Fast to Solve"
 
 ## Requirements
 
-### Jax
+### JAX
 
 Follow installation instructions [here](https://github.com/google/jax).
 
