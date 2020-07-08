@@ -60,3 +60,14 @@ It is called from the training script.
 ## Acknowledgements
 
 Code in `lib` is modified from [google/jax](https://github.com/google/jax) under the [license](https://github.com/google/jax/blob/master/LICENSE).
+
+## BibTeX
+
+```
+@article{kelly2020easynode,
+  title={Learning differential equations that are easy to solve},
+  author={Kelly, Jacob and Bettencourt, Jesse and Johnson, Matthew James and Duvenaud, David},
+  journal={arXiv preprint arXiv:2007.XXXX},
+  year={2020}
+}
+```
