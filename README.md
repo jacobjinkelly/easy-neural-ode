@@ -3,6 +3,7 @@ Code for the paper:
 
 > Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve" _arXiv preprint_ (2020).
 > [[arxiv]]() [[bibtex]](#bibtex)
+
 \*Equal Contribution
 
 ## Requirements
