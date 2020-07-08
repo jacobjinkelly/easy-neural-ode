@@ -1,5 +1,9 @@
-# Learning Differential Equations that are Fast to Solve
-Code for the paper "Learning Differential Equations that are Fast to Solve"
+# Learning Differential Equations that are Easy to Solve
+Code for the paper:
+
+> Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve" _arXiv preprint_ (2020).
+> [[arxiv]]() [[bibtex]](#bibtex)
+\*Equal Contribution
 
 ## Requirements
 
@@ -65,7 +69,7 @@ Code in `lib` is modified from [google/jax](https://github.com/google/jax) under
 
 ```
 @article{kelly2020easynode,
-  title={Learning differential equations that are easy to solve},
+  title={Learning Differential Equations that are Easy to Solve},
   author={Kelly, Jacob and Bettencourt, Jesse and Johnson, Matthew James and Duvenaud, David},
   journal={arXiv preprint arXiv:2007.XXXX},
   year={2020}
