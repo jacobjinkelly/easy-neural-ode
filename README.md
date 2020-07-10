@@ -2,7 +2,7 @@
 Code for the paper:
 
 > Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve" _arXiv preprint_ (2020).
-> [[arxiv]]() [[bibtex]](#bibtex)
+> [[arxiv]](https://arxiv.org/abs/2007.04504) [[bibtex]](#bibtex)
 
 \*Equal Contribution
 
@@ -72,7 +72,7 @@ Code in `lib` is modified from [google/jax](https://github.com/google/jax) under
 @article{kelly2020easynode,
   title={Learning Differential Equations that are Easy to Solve},
   author={Kelly, Jacob and Bettencourt, Jesse and Johnson, Matthew James and Duvenaud, David},
-  journal={arXiv preprint arXiv:2007.XXXX},
+  journal={arXiv preprint arXiv:2007.04504},
   year={2020}
 }
 ```
