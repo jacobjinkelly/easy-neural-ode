@@ -9,17 +9,13 @@ Code for the paper:
 ## Requirements
 
 ### JAX
-
-Follow installation instructions [here](https://github.com/google/jax).
+Follow installation instructions [here](https://github.com/google/jax#installation).
 
 ### Haiku
-Follow installation instructions [here](https://github.com/deepmind/dm-haiku).
+Follow installation instructions [here](https://github.com/deepmind/dm-haiku#installation).
 
 ### Tensorflow Datasets
-For using the MNIST dataset, install `tensorflow-datasets` with
-```
-pip install tensorflow-datasets
-```
+For using the MNIST dataset, follow installation instructions [here](https://github.com/tensorflow/datasets#installation).
 
 ## Usage
 Different scripts are provided for each task and dataset.
