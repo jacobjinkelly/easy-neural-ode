@@ -276,11 +276,11 @@ def init_model():
 
     initialization_data_ = initialization_data(input_shape, ode_shape)
 
-    pre_ode = hk.transform(wrap_module(PreODE))
+    pre_ode = hk.without_apply_rng(hk.transform(wrap_module(PreODE)))
     pre_ode_params = pre_ode.init(rng, initialization_data_["pre_ode"])
     pre_ode_fn = pre_ode.apply
 
-    dynamics = hk.transform(wrap_module(MLPDynamics, ode_shape))
+    dynamics = hk.without_apply_rng(hk.transform(wrap_module(MLPDynamics, ode_shape)))
     dynamics_params = dynamics.init(rng, *initialization_data_["ode"])
     dynamics_wrap = lambda x, t, params: dynamics.apply(params, x, t)
 
@@ -366,7 +366,7 @@ def init_model():
     else:
         nfe_fn = None
 
-    post_ode = hk.transform(wrap_module(PostODE))
+    post_ode = hk.without_apply_rng(hk.transform(wrap_module(PostODE)))
     post_ode_params = post_ode.init(rng, initialization_data_["post_ode"])
     post_ode_fn = post_ode.apply
 
