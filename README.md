@@ -50,7 +50,7 @@ python ffjord_mnist.py --reg r2 --lam 3e-4
 `tensorflow-datasets` (instructions for installing above) will download the data when called from the training script.
 
 ### Physionet
-The file `physionet_data.py`, adapted from [Latent ODEs for Irregularly-Sampled Time Series](https://github.com/YuliaRubanova/latent_ode) will download and process the data when called from the training script. A preprocessed version is available in [releases](https://github.com/jacobjinkelly/easy-neural-ode/releases/tag/1.0.0)
+The file `physionet_data.py`, adapted from [Latent ODEs for Irregularly-Sampled Time Series](https://github.com/YuliaRubanova/latent_ode) will download and process the data when called from the training script. A preprocessed version is available in [releases](https://github.com/jacobjinkelly/easy-neural-ode/releases/tag/1.0.0).
 
 ### Tabular (FFJORD)
 Data must be downloaded following instructions from [gpapamak/maf](https://github.com/gpapamak/maf) and placed in `data/`. Only `MINIBOONE` is needed for experiments in the paper.
