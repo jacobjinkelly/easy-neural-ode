@@ -34,7 +34,7 @@ parser.add_argument('--lam', type=float, default=0)
 parser.add_argument('--lam_w', type=float, default=0)
 parser.add_argument('--atol', type=float, default=1.4e-8)
 parser.add_argument('--rtol', type=float, default=1.4e-8)
-parser.add_argument('--no_vmap', action="store_true")
+parser.add_argument('--vmap', action="store_true")
 parser.add_argument('--reg', type=str, choices=['none'] + REGS, default='none')
 parser.add_argument('--test_freq', type=int, default=3000)
 parser.add_argument('--save_freq', type=int, default=3000)
@@ -66,7 +66,7 @@ seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
-vmap = not parse_args.no_vmap
+vmap = parse_args.vmap
 grid = False
 if grid:
     all_odeint = odeint_grid
