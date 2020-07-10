@@ -32,7 +32,7 @@ parser.add_argument('--lam', type=float, default=0)
 parser.add_argument('--lam_w', type=float, default=0)
 parser.add_argument('--atol', type=float, default=1e-5)
 parser.add_argument('--rtol', type=float, default=1e-5)
-parser.add_argument('--no_vmap', action="store_true")
+parser.add_argument('--vmap', action="store_true")
 parser.add_argument('--reg', type=str, choices=['none', 'r2', 'r3', 'r4'], default='none')
 parser.add_argument('--test_freq', type=int, default=30000)  # save time boi
 parser.add_argument('--save_freq', type=int, default=30000)  # save time boi
@@ -63,7 +63,7 @@ seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
-vmap = not parse_args.no_vmap
+vmap = parse_args.vmap
 grid = False
 if grid:
     _odeint = odeint_grid
@@ -267,11 +267,11 @@ def init_model():
 
     initialization_data_ = initialization_data(input_shape)
 
-    pre_ode = hk.transform(wrap_module(ForwardPreODE))
+    pre_ode = hk.without_apply_rng(hk.transform(wrap_module(ForwardPreODE)))
     pre_ode_params = pre_ode.init(rng, *initialization_data_["pre_ode"])
     pre_ode_fn = pre_ode.apply
 
-    dynamics = hk.transform(wrap_module(NN_Dynamics))
+    dynamics = hk.without_apply_rng(hk.transform(wrap_module(NN_Dynamics)))
     dynamics_params = dynamics.init(rng, *initialization_data_["ode"])
     dynamics_wrap = lambda x, t, params: dynamics.apply(params, x, t)
 
