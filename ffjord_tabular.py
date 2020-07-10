@@ -36,7 +36,7 @@ parser.add_argument('--lam_w', type=float, default=1e-6)
 parser.add_argument('--atol', type=float, default=1.4e-8)  # 1e-8 (original values)
 parser.add_argument('--rtol', type=float, default=1.4e-8)  # 1e-6
 parser.add_argument('--method', type=str, default="dopri5")
-parser.add_argument('--no_vmap', action="store_true")
+parser.add_argument('--vmap', action="store_true")
 parser.add_argument('--reg', type=str, choices=['none', 'r2', 'r3', 'r4'], default='none')
 parser.add_argument('--test_freq', type=int, default=300)
 parser.add_argument('--save_freq', type=int, default=300)
@@ -70,7 +70,7 @@ seed = parse_args.seed
 rng = jax.random.PRNGKey(seed)
 dirname = parse_args.dirname
 count_nfe = not parse_args.no_count_nfe
-vmap = not parse_args.no_vmap
+vmap = parse_args.vmap
 grid = False
 if grid:
     _odeint = odeint_grid
@@ -227,9 +227,10 @@ def init_model(n_dims):
 
     initialization_data_ = initialization_data(input_shape)
 
-    dynamics = hk.transform(wrap_module(NN_Dynamics,
-                                        input_shape=input_shape[1:],
-                                        hidden_dims=(n_dims * parse_args.hdim_factor, ) * parse_args.num_layers))
+    dynamics = hk.without_apply_rng(hk.transform(wrap_module(NN_Dynamics,
+                                                             input_shape=input_shape[1:],
+                                                             hidden_dims=(n_dims * parse_args.hdim_factor, )
+                                                                         * parse_args.num_layers)))
     dynamics_params = dynamics.init(rng, *initialization_data_["ode"])
     dynamics_wrap = lambda x, t, params: dynamics.apply(params, x, t)
 
@@ -641,12 +642,6 @@ def run():
                             'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
 
                 print(print_str)
-
-                if parse_args.eval:
-                    outfile = open("%s/eval_info.txt" % parse_args.eval_dir, "w")
-                    outfile.write(print_str + "\n")
-                    outfile.close()
-                    return
 
                 outfile = open("%s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt"
                                % (dirname, reg, reg_type, lam, lam_fro, lam_kin), "a")
