@@ -80,6 +80,8 @@ It is called from the training script.
 
 Code in `lib` is modified from [google/jax](https://github.com/google/jax) under the [license](https://github.com/google/jax/blob/master/LICENSE).
 
+Several numerical solvers were adapted from [torchdiffeq](https://github.com/rtqichen/torchdiffeq) and [DifferentialEquations.jl](https://github.com/SciML/DifferentialEquations.jl).
+
 ## BibTeX
 
 ```
