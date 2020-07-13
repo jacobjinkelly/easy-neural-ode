@@ -6,6 +6,11 @@ Code for the paper:
 
 \*Equal Contribution
 
+Includes JAX implementations of:
+- [Neural ODEs](https://arxiv.org/abs/1806.07366) for classification
+- [Latent ODEs](https://arxiv.org/abs/1907.03907) for time series
+- [FFJORD](https://arxiv.org/abs/1810.01367) for density estimation
+
 ## Requirements
 
 ### JAX
