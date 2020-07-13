@@ -6,10 +6,23 @@ Code for the paper:
 
 \*Equal Contribution
 
-Includes JAX implementations of:
+Includes JAX implementations of the following models:
 - [Neural ODEs](https://arxiv.org/abs/1806.07366) for classification
 - [Latent ODEs](https://arxiv.org/abs/1907.03907) for time series
 - [FFJORD](https://arxiv.org/abs/1810.01367) for density estimation
+
+Includes JAX implementations of the following adaptive-stepping numerical solvers:
+- Heun-Euler `heun` (2nd order)
+- Fehlberg (RK1(2)) `fehlberg` (2nd order)
+- Bogacki-Shampine `bosh` (3rd order)
+- Cash-Karp `cash_karp` (4th order)
+- Fehlberg `rk_fehlberg` (4th order)
+- Owrenzen `owrenzen` (4th order)
+- Dormand-Prince `dopri` (5th order)
+- Owrenzen `owrenzen5` (5th order)
+- Tanyam `tanyam` (7th order)
+- Adams `adams` (adaptive order)
+- RK4 `rk4` (4th order, fixed step-size)
 
 ## Requirements
 
