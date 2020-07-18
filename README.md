@@ -6,6 +6,10 @@ Code for the paper:
 
 \*Equal Contribution
 
+<p align="center">
+<img align="middle" src="./assets/anim.gif" width="500" />
+</p>
+
 Includes JAX implementations of the following models:
 - [Neural ODEs](https://arxiv.org/abs/1806.07366) for classification
 - [Latent ODEs](https://arxiv.org/abs/1907.03907) for time series
