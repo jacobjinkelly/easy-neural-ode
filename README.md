@@ -1,7 +1,7 @@
 # Learning Differential Equations that are Easy to Solve
 Code for the paper:
 
-> Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve" _Neural Information Processing Systems_ (2020).
+> Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve." _Neural Information Processing Systems_ (2020).
 > [[arxiv]](https://arxiv.org/abs/2007.04504) [[bibtex]](#bibtex)
 
 \*Equal Contribution
