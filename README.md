@@ -89,10 +89,11 @@ Several numerical solvers were adapted from [torchdiffeq](https://github.com/rtq
 ## BibTeX
 
 ```
-@article{kelly2020easynode,
+@inproceedings{kelly2020easynode,
   title={Learning Differential Equations that are Easy to Solve},
   author={Kelly, Jacob and Bettencourt, Jesse and Johnson, Matthew James and Duvenaud, David},
-  journal={arXiv preprint arXiv:2007.04504},
-  year={2020}
+  booktitle={Neural Information Processing Systems},
+  year={2020},
+  url={https://arxiv.org/abs/2007.04504}
 }
 ```
