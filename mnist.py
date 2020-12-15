@@ -511,7 +511,7 @@ def init_data():
         "num_test_batches": num_test_batches
     }
 
-    return ds_train, ds_train_eval, meta
+    return iter(ds_train), iter(ds_train_eval), meta
 
 
 def run():
