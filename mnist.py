@@ -6,6 +6,7 @@ import collections
 import os
 import pickle
 import time
+from math import prod
 
 import haiku as hk
 import jax
@@ -19,8 +20,6 @@ from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten
 
 from lib.ode import odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
-
-from math import prod
 
 float64 = False
 config.update("jax_enable_x64", float64)
