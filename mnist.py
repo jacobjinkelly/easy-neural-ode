@@ -128,7 +128,7 @@ def sol_recursive(f, z, t):
     for _ in range(reg_ind + 1):
         (y0, [*yns]) = jet(g, (z_t, ), ((y0, *yns), ))
 
-    return jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape)
+    return (jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape))
 
 
 # set up modules
