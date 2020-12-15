@@ -272,7 +272,6 @@ def init_model():
 
     input_shape = (1, 28, 28, 1)
     ode_shape = (-1, 28, 28, 1)
-    ode_dim = jnp.prod(ode_shape[1:])
 
     initialization_data_ = initialization_data(input_shape, ode_shape)
 
