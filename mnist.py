@@ -88,47 +88,47 @@ else:
 
 # some primitive functions
 def sigmoid(z):
-  """
-  Numerically stable sigmoid.
-  """
-  return 1/(1 + jnp.exp(-z))
+    """
+    Numerically stable sigmoid.
+    """
+    return 1/(1 + jnp.exp(-z))
 
 
 def softmax_cross_entropy(logits, labels):
-  """
-  Cross-entropy loss applied to softmax.
-  """
-  one_hot = hk.one_hot(labels, logits.shape[-1])
-  return -jnp.sum(jax.nn.log_softmax(logits) * one_hot, axis=-1)
+    """
+    Cross-entropy loss applied to softmax.
+    """
+    one_hot = hk.one_hot(labels, logits.shape[-1])
+    return -jnp.sum(jax.nn.log_softmax(logits) * one_hot, axis=-1)
 
 
 def sol_recursive(f, z, t):
-  """
-  Recursively compute higher order derivatives of dynamics of ODE.
-  """
-  if reg == "none":
-      return f(z, t), jnp.zeros_like(z)
-
-  z_shape = z.shape
-  z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
-
-  def g(z_t):
     """
-    Closure to expand z.
+    Recursively compute higher order derivatives of dynamics of ODE.
     """
-    z, t = jnp.reshape(z_t[:-1], z_shape), z_t[-1]
-    dz = jnp.ravel(f(z, t))
-    dt = jnp.array([1.])
-    dz_t = jnp.concatenate((dz, dt))
-    return dz_t
+    if reg == "none":
+        return f(z, t), jnp.zeros_like(z)
 
-  reg_ind = REGS.index(reg)
+    z_shape = z.shape
+    z_t = jnp.concatenate((jnp.ravel(z), jnp.array([t])))
 
-  (y0, [*yns]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
-  for _ in range(reg_ind + 1):
-      (y0, [*yns]) = jet(g, (z_t, ), ((y0, *yns), ))
+    def g(z_t):
+        """
+        Closure to expand z.
+        """
+        z, t = jnp.reshape(z_t[:-1], z_shape), z_t[-1]
+        dz = jnp.ravel(f(z, t))
+        dt = jnp.array([1.])
+        dz_t = jnp.concatenate((dz, dt))
+        return dz_t
 
-  return (jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape))
+    reg_ind = REGS.index(reg)
+
+    (y0, [*yns]) = jet(g, (z_t, ), ((jnp.ones_like(z_t), ), ))
+    for _ in range(reg_ind + 1):
+        (y0, [*yns]) = jet(g, (z_t, ), ((y0, *yns), ))
+
+    return (jnp.reshape(y0[:-1], z_shape), jnp.reshape(yns[-2][:-1], z_shape))
 
 
 # set up modules
