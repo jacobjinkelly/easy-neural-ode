@@ -37,7 +37,7 @@ Follow installation instructions [here](https://github.com/google/jax#installati
 Follow installation instructions [here](https://github.com/deepmind/dm-haiku#installation).
 
 ### Tensorflow Datasets
-For using the MNIST dataset, follow installation instructions [here](https://github.com/tensorflow/datasets#installation).
+For using the MNIST dataset, follow installation instructions [here](https://www.tensorflow.org/datasets/overview).
 
 ## Usage
 Different scripts are provided for each task and dataset.
