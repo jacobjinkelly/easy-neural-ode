@@ -256,7 +256,7 @@ def initialization_data(input_shape, ode_shape):
     Data for initializing the modules.
     """
     ode_shape = (1, ) + ode_shape[1:]
-    ode_dim = jnp.prod(jnp.array(ode_shape))
+    ode_dim = prod(ode_shape)
     data = {
         "pre_ode": jnp.zeros(input_shape),
         "ode": (jnp.zeros(ode_dim), 0.),
