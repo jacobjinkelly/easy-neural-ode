@@ -20,6 +20,8 @@ from jax.tree_util import tree_flatten
 
 from lib.ode import odeint, odeint_aux_one, odeint_sepaux, odeint_grid, odeint_grid_sepaux_one, odeint_grid_aux
 
+from math import prod
+
 float64 = False
 config.update("jax_enable_x64", float64)
 
@@ -199,7 +201,7 @@ class MLPDynamics(hk.Module):
     def __init__(self, input_shape):
         super(MLPDynamics, self).__init__()
         self.input_shape = input_shape
-        self.dim = jnp.prod(jnp.array(input_shape[1:]))
+        self.dim = prod(input_shape[1:])
         self.hidden_dim = 100
         self.lin1 = hk.Linear(self.hidden_dim)
         self.lin2 = hk.Linear(self.dim)
