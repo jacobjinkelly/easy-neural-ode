@@ -1,10 +1,14 @@
 # Learning Differential Equations that are Easy to Solve
 Code for the paper:
 
-> Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve" _arXiv preprint_ (2020).
+> Jacob Kelly*, Jesse Bettencourt*, Matthew James Johnson, David Duvenaud. "Learning Differential Equations that are Easy to Solve." _Neural Information Processing Systems_ (2020).
 > [[arxiv]](https://arxiv.org/abs/2007.04504) [[bibtex]](#bibtex)
 
 \*Equal Contribution
+
+<p align="center">
+<img align="middle" src="./assets/anim.gif" width="500" />
+</p>
 
 Includes JAX implementations of the following models:
 - [Neural ODEs](https://arxiv.org/abs/1806.07366) for classification
@@ -33,7 +37,7 @@ Follow installation instructions [here](https://github.com/google/jax#installati
 Follow installation instructions [here](https://github.com/deepmind/dm-haiku#installation).
 
 ### Tensorflow Datasets
-For using the MNIST dataset, follow installation instructions [here](https://github.com/tensorflow/datasets#installation).
+For using the MNIST dataset, follow installation instructions [here](https://www.tensorflow.org/datasets/overview).
 
 ## Usage
 Different scripts are provided for each task and dataset.
@@ -85,10 +89,11 @@ Several numerical solvers were adapted from [torchdiffeq](https://github.com/rtq
 ## BibTeX
 
 ```
-@article{kelly2020easynode,
+@inproceedings{kelly2020easynode,
   title={Learning Differential Equations that are Easy to Solve},
   author={Kelly, Jacob and Bettencourt, Jesse and Johnson, Matthew James and Duvenaud, David},
-  journal={arXiv preprint arXiv:2007.04504},
-  year={2020}
+  booktitle={Neural Information Processing Systems},
+  year={2020},
+  url={https://arxiv.org/abs/2007.04504}
 }
 ```
