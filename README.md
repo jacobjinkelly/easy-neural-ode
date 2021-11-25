@@ -30,6 +30,9 @@ Includes JAX implementations of the following adaptive-stepping numerical solver
 
 ## Requirements
 
+### Python
+Please use `python>=3.8`
+
 ### JAX
 Follow installation instructions [here](https://github.com/google/jax#installation).
 
